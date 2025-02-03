@@ -36,6 +36,7 @@ ruta_base = "base.xlsx"
 ruta_busqueda = "busqueda.xlsx"
 ruta_salida = "final.xlsx"
 ruta_no_encontrados = "no_encontrados.xlsx"
+ruta_duplicados = "duplicados.xlsx"
 
 try:
     df_base = pd.read_excel(ruta_base, dtype=dtypes)
@@ -45,16 +46,58 @@ except Exception as e:
     print(f"Error al cargar los archivos: {e}")
     exit()
 
-# Convertir las columnas de fecha a datetime, NO SIRVE ESTA PARTE, NO SE POR QUE!!!!
-columnas_fecha = ['Fecha de la resolución', 'Fecha hasta en suspensiones', 'Fecha Comparendo']
-for columna in columnas_fecha:
-    if columna in df_base.columns:
-        df_base[columna] = pd.to_datetime(df_base[columna], errors='coerce') 
+# Filtrar df_base para incluir solo los comparendos que están en df_busqueda
+df_base_filtrada = df_base[df_base['Número Comparendo'].isin(df_busqueda['NUMERO_COMPARENDO'])]
+
+# Identificar duplicados solo en los registros que están en búsqueda
+duplicados_base = df_base_filtrada[df_base_filtrada.duplicated(['Número Comparendo'], keep=False)]
+
+if not duplicados_base.empty:
+    print(f"Se encontraron {len(duplicados_base)} registros duplicados en la base para los comparendos buscados")
+    
+    # Ordenar duplicados por número de comparendo para mejor visualización
+    duplicados_base = duplicados_base.sort_values('Número Comparendo')
+    
+    with pd.ExcelWriter(ruta_duplicados, engine='openpyxl') as writer:
+        duplicados_base.to_excel(writer, index=False)
+        
+    wb = load_workbook(ruta_duplicados)
+    ws = wb.active
+    for column in ws.columns:
+        max_length = 0
+        column_letter = get_column_letter(column[0].column)
+        for cell in column:
+            try:
+                cell.alignment = Alignment(horizontal='right')
+                if cell.row == 1:
+                    cell.font = Font(bold=True)
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = (max_length + 2)
+        ws.column_dimensions[column_letter].width = adjusted_width
+    wb.save(ruta_duplicados)
+
+# Función para seleccionar el registro más reciente
+def seleccionar_registro_mas_reciente(grupo):
+    try:
+        grupo['Fecha Comparendo'] = pd.to_datetime(grupo['Fecha Comparendo'], errors='coerce')
+        return grupo.sort_values('Fecha Comparendo', ascending=False).iloc[0]
+    except Exception as e:
+        print(f"Error al procesar fechas para el comparendo {grupo['Número Comparendo'].iloc[0]}: {e}")
+        return grupo.iloc[0]
+
+# Eliminar duplicados solo en los registros filtrados
+df_base_sin_duplicados = pd.concat([
+    df_base_filtrada.groupby('Número Comparendo').apply(seleccionar_registro_mas_reciente),
+    df_base[~df_base['Número Comparendo'].isin(df_busqueda['NUMERO_COMPARENDO'])]
+]).reset_index(drop=True)
 
 try:
     resultados = pd.merge(
         df_busqueda[['NUMERO_COMPARENDO', 'NUMERO_RESOLUCION', 'FECHA_RESOLUCION']], 
-        df_base,
+        df_base_sin_duplicados,
         left_on='NUMERO_COMPARENDO',
         right_on='Número Comparendo',
         how='left'
@@ -96,7 +139,6 @@ except Exception as e:
 
 # Duplicar y modificar los resultados
 try:
-    # Crear copias separadas para cada tipo de registro
     registros_originales = resultados.copy()
     registros_modificados = resultados.copy()
     
@@ -107,7 +149,6 @@ try:
     registros_modificados['Código del tipo de resolución'] = '16'
     registros_modificados['Fecha de la resolución'] = registros_modificados['FECHA_RESOLUCION']
     
-    # Concatenar alternando entre original y modificado
     resultados_finales = pd.DataFrame()
     for i in range(len(registros_originales)):
         resultados_finales = pd.concat([
@@ -123,13 +164,11 @@ except Exception as e:
     exit()
 
 try:
-    
     with pd.ExcelWriter(ruta_salida, engine='openpyxl') as writer:
         resultados_finales.to_excel(writer, index=False)
 
     wb = load_workbook(ruta_salida)
     ws = wb.active
-
     column_widths = {}
 
     for row in ws.rows:
