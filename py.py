@@ -40,11 +40,17 @@ ruta_duplicados = "duplicados.xlsx"
 
 try:
     df_base = pd.read_excel(ruta_base, dtype=dtypes)
-    df_busqueda = pd.read_excel(ruta_busqueda, dtype={'NUMERO_COMPARENDO': str, 'NUMERO_RESOLUCION': str})
+    df_busqueda = pd.read_excel(ruta_busqueda, dtype={
+        'NUMERO_COMPARENDO': str, 
+        'NUMERO_RESOLUCION': str,
+        'VALOR_EMBARGO': str  
+    })
     print("Archivos cargados correctamente")
 except Exception as e:
     print(f"Error al cargar los archivos: {e}")
     exit()
+
+print("Columnas en df_busqueda:", df_busqueda.columns)
 
 # Filtrar df_base para incluir solo los comparendos que están en df_busqueda
 df_base_filtrada = df_base[df_base['Número Comparendo'].isin(df_busqueda['NUMERO_COMPARENDO'])]
@@ -96,7 +102,7 @@ df_base_sin_duplicados = pd.concat([
 
 try:
     resultados = pd.merge(
-        df_busqueda[['NUMERO_COMPARENDO', 'NUMERO_RESOLUCION', 'FECHA_RESOLUCION']], 
+        df_busqueda[['NUMERO_COMPARENDO', 'NUMERO_RESOLUCION', 'FECHA_RESOLUCION', 'VALOR_EMBARGO']], 
         df_base_sin_duplicados,
         left_on='NUMERO_COMPARENDO',
         right_on='Número Comparendo',
@@ -148,6 +154,9 @@ try:
     registros_modificados['Número de la resolucion'] = registros_modificados['NUMERO_RESOLUCION']
     registros_modificados['Código del tipo de resolución'] = '16'
     registros_modificados['Fecha de la resolución'] = registros_modificados['FECHA_RESOLUCION']
+    # Update valores when Código del tipo de resolución is 16
+    registros_modificados.loc[registros_modificados['Código del tipo de resolución'] == '16', 'Valor total de la resolución'] = registros_modificados['VALOR_EMBARGO']
+    registros_modificados.loc[registros_modificados['Código del tipo de resolución'] == '16', 'Valor a pagar infraccion(*)'] = registros_modificados['VALOR_EMBARGO']
     
     resultados_finales = pd.DataFrame()
     for i in range(len(registros_originales)):
@@ -157,7 +166,7 @@ try:
             pd.DataFrame([registros_modificados.iloc[i]])
         ])
     
-    resultados_finales = resultados_finales.drop(['NUMERO_COMPARENDO', 'NUMERO_RESOLUCION', 'FECHA_RESOLUCION'], axis=1)
+    resultados_finales = resultados_finales.drop(['NUMERO_COMPARENDO', 'NUMERO_RESOLUCION', 'FECHA_RESOLUCION', 'VALOR_EMBARGO'], axis=1)
     print("Registros duplicados y modificados correctamente")
 except Exception as e:
     print(f"Error al duplicar y modificar los registros: {e}")
